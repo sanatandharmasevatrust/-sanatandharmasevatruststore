@@ -61,3 +61,7 @@ The Worker health endpoint is:
 `/api/health`
 
 Do not put service-role keys, Cashfree secret keys, or webhook secrets in React/Vite client-side code.
+
+
+### Cloudflare dependency note
+The project pins `@cloudflare/workers-types` to a published stable version so Bun can resolve dependencies during Cloudflare builds.
