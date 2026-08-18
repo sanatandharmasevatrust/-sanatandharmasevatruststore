@@ -95,7 +95,7 @@ function StoreFooter({ navigate }: { navigate: (path: string) => void }) {
 }
 
 function LoginPage({ navigate }: { navigate: (path: string) => void }) {
-  const { loginAsCustomer, loginAsAdmin, registerCustomer } = useAuth();
+  const { loginAsCustomer, loginAsAdmin, registerCustomer, isSupabaseLive } = useAuth();
   const [mode, setMode] = useState<"customer" | "admin">("customer");
   const [signup, setSignup] = useState(false);
   const [email, setEmail] = useState("");
@@ -344,8 +344,14 @@ function LoginPage({ navigate }: { navigate: (path: string) => void }) {
           </div>
         )}
 
+        {!isSupabaseLive && (
+          <div className="mt-5 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
+            Secure authentication is not connected to this deployment yet. Login is disabled until Supabase is configured.
+          </div>
+        )}
+
         <div className="mt-6 pt-5 border-t border-stone-100 text-center text-[11px] text-stone-400">
-          Your account is used for store orders and account management.
+          Your account is authenticated by Supabase. No demo credentials are accepted.
         </div>
       </div>
     </div>
@@ -353,7 +359,7 @@ function LoginPage({ navigate }: { navigate: (path: string) => void }) {
 }
 
 function Router() {
-  const { isAuthenticated, isAdmin } = useAuth();
+  const { isAuthenticated, isAdmin, isSupabaseLive } = useAuth();
   const [path, setPath] = useState(window.location.pathname + window.location.search);
   const navigate = (to: string) => {
     window.history.pushState({}, "", to);
@@ -389,7 +395,7 @@ function Router() {
   } else if (pathname === "/account" || pathname === "/profile") {
     page = <CustomerProfilePage navigate={navigate} />;
   } else if (pathname === "/admin" || pathname.startsWith("/admin/")) {
-    if (!isAuthenticated) {
+    if (!isSupabaseLive || !isAuthenticated) {
       page = <LoginPage navigate={navigate} />;
     } else if (!isAdmin) {
       page = (

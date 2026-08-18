@@ -122,18 +122,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   );
   const [lastSecurityCheck, setLastSecurityCheck] = useState<string>(() => new Date().toLocaleTimeString());
 
-  const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => {
-    // In production, the Supabase session is the only source of truth.
-    // Never restore an admin/customer identity from localStorage.
-    if (isSupabaseConfigured()) return null;
-
-    try {
-      const stored = localStorage.getItem(AUTH_STORAGE_KEY);
-      return stored ? JSON.parse(stored) : null;
-    } catch {
-      return null;
-    }
-  });
+  const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
 
   const [orders, setOrders] = useState<OrderDetails[]>(() => {
     try {
@@ -215,22 +204,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [isSupabaseLive]);
 
   useEffect(() => {
+    // Authentication is exclusively managed by Supabase Auth.
+    // Clear any identities written by older demo builds.
     try {
-      if (isSupabaseLive) {
-        // Supabase Auth owns the session; don't persist identities ourselves.
-        localStorage.removeItem(AUTH_STORAGE_KEY);
-        return;
-      }
-
-      if (currentUser) {
-        localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(currentUser));
-      } else {
-        localStorage.removeItem(AUTH_STORAGE_KEY);
-      }
-    } catch (e) {
-      console.error(e);
+      localStorage.removeItem(AUTH_STORAGE_KEY);
+    } catch {
+      // Ignore storage restrictions.
     }
-  }, [currentUser, isSupabaseLive]);
+  }, [currentUser]);
 
   useEffect(() => {
     try {

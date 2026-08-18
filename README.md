@@ -118,3 +118,6 @@ Do not point the Store webhook at the Trust donation webhook.
 
 ## Authentication hardening
 The production build no longer accepts arbitrary email/password combinations. Customer and Admin login both require Supabase Auth. No demo fallback is used. Admin authorization is read from `public.profiles.role`, not from email addresses or browser storage. Supabase email confirmation should be enabled in Authentication settings.
+
+## Important deployment requirement
+Cloudflare Worker runtime variables named `SUPABASE_URL` and `SUPABASE_ANON_KEY` are not automatically available to Vite's `import.meta.env`. The Store must be built with `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` (publishable key) or use a runtime config endpoint. If Supabase is not configured in the frontend build, the app now refuses authentication and clears legacy demo auth storage.
