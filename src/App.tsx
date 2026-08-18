@@ -200,7 +200,7 @@ function LoginPage({ navigate }: { navigate: (path: string) => void }) {
               ? "Secure access to the Sanatan Seva Store administration."
               : signup
                 ? "Join Sanatan Seva Store to manage your orders and account."
-                : "Sign in to manage your orders and store account."}
+                : "Sign in with your registered Store account."}
           </p>
         </div>
 
@@ -353,6 +353,7 @@ function LoginPage({ navigate }: { navigate: (path: string) => void }) {
 }
 
 function Router() {
+  const { isAuthenticated, isAdmin } = useAuth();
   const [path, setPath] = useState(window.location.pathname + window.location.search);
   const navigate = (to: string) => {
     window.history.pushState({}, "", to);
@@ -388,7 +389,29 @@ function Router() {
   } else if (pathname === "/account" || pathname === "/profile") {
     page = <CustomerProfilePage navigate={navigate} />;
   } else if (pathname === "/admin" || pathname.startsWith("/admin/")) {
-    page = <AdminDashboardPage navigate={navigate} />;
+    if (!isAuthenticated) {
+      page = <LoginPage navigate={navigate} />;
+    } else if (!isAdmin) {
+      page = (
+        <div className="min-h-[70vh] flex items-center justify-center px-4 py-16">
+          <div className="max-w-md w-full bg-white rounded-3xl border border-red-100 shadow-sm p-8 text-center">
+            <div className="text-4xl">🔒</div>
+            <h1 className="marcellus text-2xl font-bold text-stone-900 mt-4">Admin access required</h1>
+            <p className="text-sm text-stone-500 mt-2">
+              This area is restricted to authorized Store administrators.
+            </p>
+            <button
+              onClick={() => navigate("/")}
+              className="mt-6 px-5 py-3 rounded-xl bg-orange-600 text-white font-bold"
+            >
+              Return to Store
+            </button>
+          </div>
+        </div>
+      );
+    } else {
+      page = <AdminDashboardPage navigate={navigate} />;
+    }
   } else if (pathname.startsWith("/product/")) {
     page = (
       <ProductDetailPage

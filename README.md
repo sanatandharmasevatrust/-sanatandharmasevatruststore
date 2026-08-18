@@ -106,3 +106,15 @@ The Cashfree payment integration is separate from the Trust donation webhook. It
 `/api/store/cashfree/webhook`
 
 Do not point the Store webhook at the Trust donation webhook.
+
+
+## Admin security
+- Admin login uses Supabase Auth.
+- Admin role is read from `public.profiles.role`; email address and frontend metadata cannot grant admin access.
+- `/admin` is route-guarded in the frontend.
+- Database writes must still pass Supabase RLS using `public.is_admin()`.
+- Do not use or restore demo admin credentials or client-side role switching in production.
+- To make an account an admin, assign its Supabase Auth user ID `role = 'admin'` in `public.profiles` from a trusted administrator workflow.
+
+## Authentication hardening
+The production build no longer accepts arbitrary email/password combinations. Customer and Admin login both require Supabase Auth. No demo fallback is used. Admin authorization is read from `public.profiles.role`, not from email addresses or browser storage. Supabase email confirmation should be enabled in Authentication settings.

@@ -123,6 +123,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [lastSecurityCheck, setLastSecurityCheck] = useState<string>(() => new Date().toLocaleTimeString());
 
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => {
+    // In production, the Supabase session is the only source of truth.
+    // Never restore an admin/customer identity from localStorage.
+    if (isSupabaseConfigured()) return null;
+
     try {
       const stored = localStorage.getItem(AUTH_STORAGE_KEY);
       return stored ? JSON.parse(stored) : null;
@@ -154,13 +158,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     client.auth.getSession().then(({ data: { session }, error }) => {
       if (!error && session?.user) {
         const metadata = session.user.user_metadata || {};
-        const role = (metadata.role as UserRole) || (session.user.email?.includes("admin") ? "admin" : "customer");
+        const { data: profile } = await client
+          .from("profiles")
+          .select("role, full_name, phone")
+          .eq("id", session.user.id)
+          .maybeSingle();
+
+        const role: UserRole = profile?.role === "admin" ? "admin" : "customer";
+
         setCurrentUser({
           id: session.user.id,
           email: session.user.email || "",
-          name: metadata.name || metadata.full_name || session.user.email?.split("@")[0] || "Devotee",
-          role: role,
-          phone: metadata.phone || "",
+          name: profile?.full_name || metadata.name || metadata.full_name || session.user.email?.split("@")[0] || "Devotee",
+          role,
+          phone: profile?.phone || metadata.phone || "",
           pan: metadata.pan || "",
           gotra: metadata.gotra || "",
           address: metadata.address || undefined,
@@ -174,13 +185,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setLastSecurityCheck(new Date().toLocaleTimeString());
       if (session?.user) {
         const metadata = session.user.user_metadata || {};
-        const role = (metadata.role as UserRole) || (session.user.email?.includes("admin") ? "admin" : "customer");
+        const { data: profile } = await client
+          .from("profiles")
+          .select("role, full_name, phone")
+          .eq("id", session.user.id)
+          .maybeSingle();
+
+        const role: UserRole = profile?.role === "admin" ? "admin" : "customer";
+
         setCurrentUser({
           id: session.user.id,
           email: session.user.email || "",
-          name: metadata.name || metadata.full_name || session.user.email?.split("@")[0] || "Devotee",
-          role: role,
-          phone: metadata.phone || "",
+          name: profile?.full_name || metadata.name || metadata.full_name || session.user.email?.split("@")[0] || "Devotee",
+          role,
+          phone: profile?.phone || metadata.phone || "",
           pan: metadata.pan || "",
           gotra: metadata.gotra || "",
           address: metadata.address || undefined,
@@ -198,6 +216,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     try {
+      if (isSupabaseLive) {
+        // Supabase Auth owns the session; don't persist identities ourselves.
+        localStorage.removeItem(AUTH_STORAGE_KEY);
+        return;
+      }
+
       if (currentUser) {
         localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(currentUser));
       } else {
@@ -206,7 +230,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (e) {
       console.error(e);
     }
-  }, [currentUser]);
+  }, [currentUser, isSupabaseLive]);
 
   useEffect(() => {
     try {
@@ -218,113 +242,172 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const loginAsAdmin = async (email?: string, password?: string): Promise<{ success: boolean; message: string }> => {
     const client = getSupabaseClient();
-    const adminEmail = email?.trim() || DEFAULT_ADMIN.email;
 
-    if (client && password) {
-      try {
-        const { data, error } = await client.auth.signInWithPassword({
-          email: adminEmail,
-          password: password,
-        });
-
-        if (error) {
-          // If credentials fail in Supabase but match local demo default
-          if (adminEmail === DEFAULT_ADMIN.email) {
-            setCurrentUser(DEFAULT_ADMIN);
-            return {
-              success: true,
-              message: "Acharya ji authenticated via Sanatan Admin Security Guard.",
-            };
-          }
-          return { success: false, message: error.message };
-        }
-
-        if (data.user) {
-          const metadata = data.user.user_metadata || {};
-          setCurrentUser({
-            id: data.user.id,
-            email: data.user.email || adminEmail,
-            name: metadata.name || "Trust Acharya & Admin",
-            role: "admin",
-            phone: metadata.phone || DEFAULT_ADMIN.phone,
-            joinedDate: "January 2024",
-          });
-          return { success: true, message: "Welcome Acharya ji! Supabase Admin Session Verified." };
-        }
-      } catch (err: any) {
-        console.warn("Supabase Auth fallback:", err);
-      }
+    if (!client) {
+      return {
+        success: false,
+        message: "Store authentication is not configured. Please contact the administrator.",
+      };
     }
 
-    // Secure local fallback
-    const user: UserAccount = {
-      ...DEFAULT_ADMIN,
-      email: adminEmail,
-    };
-    setCurrentUser(user);
-    setLastSecurityCheck(new Date().toLocaleTimeString());
-    return { success: true, message: "Welcome Acharya ji! Secure Admin Session Established." };
+    if (!email?.trim() || !password) {
+      return {
+        success: false,
+        message: "Enter your admin email and password.",
+      };
+    }
+
+    try {
+      const { data, error } = await client.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
+
+      if (error || !data.user) {
+        return {
+          success: false,
+          message: error?.message || "Invalid admin credentials.",
+        };
+      }
+
+      // Never trust frontend metadata/email to grant admin access.
+      // The role must come from the protected profiles table/RLS.
+      const { data: profile, error: profileError } = await client
+        .from("profiles")
+        .select("role, full_name, phone")
+        .eq("id", data.user.id)
+        .maybeSingle();
+
+      if (profileError || profile?.role !== "admin") {
+        await client.auth.signOut();
+        setCurrentUser(null);
+        return {
+          success: false,
+          message: "This account is not authorized for Store Admin access.",
+        };
+      }
+
+      const metadata = data.user.user_metadata || {};
+      const user: UserAccount = {
+        id: data.user.id,
+        email: data.user.email || email.trim(),
+        name: profile.full_name || metadata.name || "Store Administrator",
+        role: "admin",
+        phone: profile.phone || metadata.phone || "",
+        joinedDate: new Date(data.user.created_at).toLocaleDateString("en-IN", {
+          month: "short",
+          year: "numeric",
+        }),
+      };
+
+      setCurrentUser(user);
+      setLastSecurityCheck(new Date().toLocaleTimeString());
+
+      return {
+        success: true,
+        message: "Admin session verified successfully.",
+      };
+    } catch (err) {
+      console.error("Admin authentication error:", err);
+      return {
+        success: false,
+        message: "Unable to authenticate the admin account.",
+      };
+    }
   };
 
   const loginAsCustomer = async (
     email: string,
-    name?: string,
-    phone?: string,
+    _name?: string,
+    _phone?: string,
     password?: string
   ): Promise<{ success: boolean; message: string }> => {
     const client = getSupabaseClient();
-    const customerEmail = email.trim();
 
-    if (client && password) {
-      try {
-        const { data, error } = await client.auth.signInWithPassword({
-          email: customerEmail,
-          password: password,
-        });
-
-        if (error) {
-          // Allow demo login if user uses default demo account
-          if (customerEmail === DEFAULT_CUSTOMER.email) {
-            setCurrentUser(DEFAULT_CUSTOMER);
-            return {
-              success: true,
-              message: `Namaste ${DEFAULT_CUSTOMER.name}! Logged in as Customer.`,
-            };
-          }
-          return { success: false, message: error.message };
-        }
-
-        if (data.user) {
-          const metadata = data.user.user_metadata || {};
-          const user: UserAccount = {
-            id: data.user.id,
-            role: "customer",
-            email: data.user.email || customerEmail,
-            name: metadata.name || name || DEFAULT_CUSTOMER.name,
-            phone: metadata.phone || phone || DEFAULT_CUSTOMER.phone,
-            pan: metadata.pan || DEFAULT_CUSTOMER.pan,
-            gotra: metadata.gotra || DEFAULT_CUSTOMER.gotra,
-            address: metadata.address || DEFAULT_CUSTOMER.address,
-            joinedDate: new Date(data.user.created_at).toLocaleDateString("en-IN", { month: "short", year: "numeric" }),
-          };
-          setCurrentUser(user);
-          return { success: true, message: `Namaste ${user.name}! Supabase session authenticated.` };
-        }
-      } catch (err: any) {
-        console.warn("Supabase customer login fallback:", err);
-      }
+    if (!client) {
+      return {
+        success: false,
+        message: "Store authentication is not configured. Please contact the administrator.",
+      };
     }
 
-    // Default fast login
-    const user: UserAccount = {
-      ...DEFAULT_CUSTOMER,
-      email: customerEmail,
-      name: name?.trim() || (customerEmail.includes("rajesh") ? DEFAULT_CUSTOMER.name : customerEmail.split("@")[0]),
-      phone: phone?.trim() || DEFAULT_CUSTOMER.phone,
-    };
-    setCurrentUser(user);
-    setLastSecurityCheck(new Date().toLocaleTimeString());
-    return { success: true, message: `Namaste ${user.name}! Logged in as Devotee Customer.` };
+    if (!email.trim() || !password) {
+      return {
+        success: false,
+        message: "Enter your email and password.",
+      };
+    }
+
+    try {
+      const { data, error } = await client.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
+
+      if (error || !data.user) {
+        return {
+          success: false,
+          message: error?.message || "Invalid email or password.",
+        };
+      }
+
+      // Read role from the protected database profile.
+      // Never infer a role from the email address or client metadata.
+      const { data: profile, error: profileError } = await client
+        .from("profiles")
+        .select("role, full_name, phone")
+        .eq("id", data.user.id)
+        .maybeSingle();
+
+      if (profileError) {
+        await client.auth.signOut();
+        setCurrentUser(null);
+        return {
+          success: false,
+          message: "Unable to verify your account. Please try again.",
+        };
+      }
+
+      // Keep the admin and customer entry points separate.
+      if (profile?.role === "admin") {
+        await client.auth.signOut();
+        setCurrentUser(null);
+        return {
+          success: false,
+          message: "This is an administrator account. Please use Admin Sign In.",
+        };
+      }
+
+      const metadata = data.user.user_metadata || {};
+      const user: UserAccount = {
+        id: data.user.id,
+        role: "customer",
+        email: data.user.email || email.trim(),
+        name: profile?.full_name || metadata.name || metadata.full_name || email.split("@")[0],
+        phone: profile?.phone || metadata.phone || "",
+        pan: metadata.pan || "",
+        gotra: metadata.gotra || "",
+        address: metadata.address || undefined,
+        joinedDate: new Date(data.user.created_at).toLocaleDateString("en-IN", {
+          month: "short",
+          year: "numeric",
+        }),
+      };
+
+      setCurrentUser(user);
+      setLastSecurityCheck(new Date().toLocaleTimeString());
+
+      return {
+        success: true,
+        message: `Namaste ${user.name}! You are securely signed in.`,
+      };
+    } catch (err) {
+      console.error("Customer authentication error:", err);
+      return {
+        success: false,
+        message: "Unable to sign in. Please try again.",
+      };
+    }
   };
 
   const registerCustomer = async (details: {
@@ -338,74 +421,83 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }): Promise<{ success: boolean; message: string }> => {
     const client = getSupabaseClient();
 
-    if (client && details.password) {
-      try {
-        const { data, error } = await client.auth.signUp({
-          email: details.email,
-          password: details.password,
-          options: {
-            data: {
-              name: details.name,
-              role: "customer",
-              phone: details.phone || "",
-              pan: details.pan || "",
-              gotra: details.gotra || "",
-              address: details.address || null,
-            },
-          },
-        });
-
-        if (error) {
-          return { success: false, message: error.message };
-        }
-
-        if (data.user) {
-          const newUser: UserAccount = {
-            id: data.user.id,
-            role: "customer",
-            name: details.name,
-            email: details.email,
-            phone: details.phone || "+91 99999 00000",
-            pan: details.pan || "",
-            gotra: details.gotra || "Kashyapa",
-            address: details.address || {
-              street: "Main Mandir Marg",
-              city: "New Delhi",
-              state: "Delhi",
-              pincode: "110001",
-            },
-            joinedDate: "Today",
-          };
-          setCurrentUser(newUser);
-          return {
-            success: true,
-            message: "Registration successful in Supabase! Welcome to Sanatan Seva Store.",
-          };
-        }
-      } catch (err: any) {
-        console.warn("Supabase register error:", err);
-      }
+    if (!client) {
+      return {
+        success: false,
+        message: "Store authentication is not configured. Please contact the administrator.",
+      };
     }
 
-    const newUser: UserAccount = {
-      id: `cust-${Date.now().toString().slice(-6)}`,
-      role: "customer",
-      name: details.name,
-      email: details.email,
-      phone: details.phone || "+91 99999 00000",
-      pan: details.pan || "",
-      gotra: details.gotra || "Kashyapa",
-      address: details.address || {
-        street: "Main Mandir Marg",
-        city: "New Delhi",
-        state: "Delhi",
-        pincode: "110001",
-      },
-      joinedDate: "Today",
-    };
-    setCurrentUser(newUser);
-    setLastSecurityCheck(new Date().toLocaleTimeString());
-    return { success: true, message: "Registration successful! Welcome to Sanatan Seva Store." };
+    if (!details.password || details.password.length < 8) {
+      return {
+        success: false,
+        message: "Password must contain at least 8 characters.",
+      };
+    }
+
+    try {
+      const { data, error } = await client.auth.signUp({
+        email: details.email.trim(),
+        password: details.password,
+        options: {
+          data: {
+            name: details.name.trim(),
+            role: "customer",
+            phone: details.phone || "",
+            pan: details.pan || "",
+            gotra: details.gotra || "",
+            address: details.address || null,
+          },
+        },
+      });
+
+      if (error) {
+        return { success: false, message: error.message };
+      }
+
+      if (!data.user) {
+        return {
+          success: false,
+          message: "Account could not be created. Please try again.",
+        };
+      }
+
+      // If Supabase email confirmation is enabled, there will be no session yet.
+      // Do not create a fake logged-in user in the browser.
+      if (!data.session) {
+        return {
+          success: true,
+          message: "Account created. Please verify your email before signing in.",
+        };
+      }
+
+      const newUser: UserAccount = {
+        id: data.user.id,
+        role: "customer",
+        name: details.name.trim(),
+        email: data.user.email || details.email.trim(),
+        phone: details.phone || "",
+        pan: details.pan || "",
+        gotra: details.gotra || "",
+        address: details.address,
+        joinedDate: new Date().toLocaleDateString("en-IN", {
+          month: "short",
+          year: "numeric",
+        }),
+      };
+
+      setCurrentUser(newUser);
+      return {
+        success: true,
+        message: "Registration successful! Welcome to Sanatan Seva Store.",
+      };
+    } catch (err) {
+      console.error("Supabase register error:", err);
+      return {
+        success: false,
+        message: "Unable to create the account. Please try again.",
+      };
+    }
   };
 
   const logout = async () => {
@@ -447,12 +539,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setOrders((prev) => [order, ...prev]);
   };
 
-  const switchRoleQuick = (role: UserRole) => {
-    if (role === "admin") {
-      setCurrentUser(DEFAULT_ADMIN);
-    } else {
-      setCurrentUser(DEFAULT_CUSTOMER);
-    }
+  const switchRoleQuick = (_role: UserRole) => {
+    // Intentionally disabled in production.
+    // Admin privileges can only come from the Supabase profiles.role value.
     setLastSecurityCheck(new Date().toLocaleTimeString());
   };
 
