@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { load } from "@cashfreepayments/cashfree-js";
 import { useCart } from "../context/CartContext";
 import { useAuth } from "../context/AuthContext";
 import { ProductImage } from "../components/ProductImage";
@@ -53,12 +54,85 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ navigate }) => {
     }
   }, [currentUser]);
 
-  const [paymentMethod, setPaymentMethod] = useState<"upi" | "card" | "netbanking" | "cod">("upi");
+  const [paymentMethod, setPaymentMethod] = useState<"cashfree">("cashfree");
   const [isProcessing, setIsProcessing] = useState(false);
   const [orderConfirmed, setOrderConfirmed] = useState<any | null>(null);
 
   useEffect(() => {
     document.title = "Secure Checkout | Sanatan Seva Store";
+  }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const returned = params.get("cashfree") === "return";
+    const returnedOrderId = params.get("order_id");
+
+    if (!returned || !returnedOrderId) return;
+
+    let cancelled = false;
+
+    const verifyReturn = async () => {
+      setIsProcessing(true);
+
+      try {
+        const response = await fetch("/api/store/cashfree/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ orderId: returnedOrderId }),
+        });
+
+        const result = await response.json();
+
+        if (!response.ok || !result?.paid) {
+          if (!cancelled) {
+            alert("Payment is not confirmed yet. Please check your Cashfree payment status or try again.");
+            setIsProcessing(false);
+          }
+          return;
+        }
+
+        if (cancelled) return;
+
+        const newOrder = {
+          orderId: returnedOrderId,
+          items: [...cart],
+          customer: { ...formData },
+          pricing: {
+            subtotal,
+            discount,
+            shipping,
+            total: Number(result.amount || finalTotal),
+          },
+          paymentMethod: "cashfree",
+          promoCode,
+          createdAt: new Date().toLocaleString("en-IN", {
+            dateStyle: "medium",
+            timeStyle: "short",
+          }),
+          status: "Processing" as const,
+          paymentStatus: "PAID",
+        };
+
+        addCustomerOrder(newOrder);
+        setOrderConfirmed(newOrder);
+        clearCart();
+        window.history.replaceState({}, "", "/store/checkout");
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      } catch (error) {
+        console.error("Cashfree return verification error:", error);
+        if (!cancelled) {
+          alert("We could not verify the payment yet. Please contact the Store if money was deducted.");
+        }
+      } finally {
+        if (!cancelled) setIsProcessing(false);
+      }
+    };
+
+    verifyReturn();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   if (cart.length === 0 && !orderConfirmed) {
@@ -88,40 +162,61 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ navigate }) => {
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handlePlaceOrder = (e: React.FormEvent) => {
+  const handlePlaceOrder = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.fullName || !formData.phone || !formData.address || !formData.pincode) {
-      alert("Please complete the required delivery information (Name, Phone, Address, PIN code).");
+
+    if (!formData.fullName || !formData.email || !formData.phone || !formData.address || !formData.city || !formData.state || !formData.pincode) {
+      alert("Please complete the required delivery information.");
+      return;
+    }
+
+    if (!/^\d{6}$/.test(formData.pincode.trim())) {
+      alert("Please enter a valid 6-digit PIN code.");
       return;
     }
 
     setIsProcessing(true);
-    // Simulate isolated store order processing
-    setTimeout(() => {
-      const newOrder = {
-        orderId: `SSS-${Date.now().toString().slice(-6)}-${Math.floor(1000 + Math.random() * 9000)}`,
-        items: [...cart],
-        customer: { ...formData },
-        pricing: {
-          subtotal,
-          discount,
-          shipping,
-          total: finalTotal,
-        },
-        paymentMethod,
-        promoCode,
-        createdAt: new Date().toLocaleString("en-IN", {
-          dateStyle: "medium",
-          timeStyle: "short",
+
+    try {
+      const response = await fetch("/api/store/cashfree/create-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          items: cart.map(({ product, quantity }) => ({
+            slug: product.slug,
+            quantity,
+          })),
+          customer: {
+            name: formData.fullName,
+            email: formData.email,
+            phone: formData.phone,
+          },
         }),
-        status: "Processing" as const,
-      };
-      addCustomerOrder(newOrder);
-      setOrderConfirmed(newOrder);
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result?.paymentSessionId) {
+        throw new Error(result?.error || "Unable to start Cashfree checkout.");
+      }
+
+      const cashfree = await load({
+        mode: "production",
+      });
+
+      if (!cashfree) {
+        throw new Error("Cashfree Checkout could not be loaded.");
+      }
+
+      await cashfree.checkout({
+        paymentSessionId: result.paymentSessionId,
+        redirectTarget: "_self",
+      });
+    } catch (error: any) {
+      console.error("Cashfree checkout error:", error);
+      alert(error?.message || "Unable to open Cashfree payment. Please try again.");
       setIsProcessing(false);
-      clearCart();
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    }, 1200);
+    }
   };
 
   // ORDER SUCCESS CONFIRMATION VIEW
@@ -419,112 +514,30 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ navigate }) => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {/* UPI Option */}
-                <label
-                  className={`p-4 rounded-xl border-2 cursor-pointer transition-all flex items-start gap-3 ${
-                    paymentMethod === "upi"
-                      ? "border-orange-600 bg-orange-50/40"
-                      : "border-gray-200 hover:border-gray-300 bg-white"
-                  }`}
-                >
+              <div className="grid grid-cols-1 gap-3">
+                <label className="p-5 rounded-xl border-2 border-orange-600 bg-orange-50/40 flex items-start gap-3">
                   <input
                     type="radio"
                     name="payment"
-                    value="upi"
-                    checked={paymentMethod === "upi"}
-                    onChange={() => setPaymentMethod("upi")}
-                    className="mt-1 text-orange-600 focus:ring-orange-500"
-                  />
-                  <div>
-                    <div className="flex items-center gap-2 font-bold text-xs uppercase tracking-wider text-gray-900">
-                      <QrCode className="w-4 h-4 text-orange-600" />
-                      <span>UPI (GPay / PhonePe / Paytm / BHIM)</span>
-                    </div>
-                    <p className="text-xs text-gray-500 mt-1">
-                      Fastest zero-fee instant QR & VPA payment
-                    </p>
-                  </div>
-                </label>
-
-                {/* Cards Option */}
-                <label
-                  className={`p-4 rounded-xl border-2 cursor-pointer transition-all flex items-start gap-3 ${
-                    paymentMethod === "card"
-                      ? "border-orange-600 bg-orange-50/40"
-                      : "border-gray-200 hover:border-gray-300 bg-white"
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="payment"
-                    value="card"
-                    checked={paymentMethod === "card"}
-                    onChange={() => setPaymentMethod("card")}
+                    value="cashfree"
+                    checked
+                    readOnly
                     className="mt-1 text-orange-600 focus:ring-orange-500"
                   />
                   <div>
                     <div className="flex items-center gap-2 font-bold text-xs uppercase tracking-wider text-gray-900">
                       <CreditCard className="w-4 h-4 text-orange-600" />
-                      <span>Credit / Debit Card</span>
+                      <span>Cashfree Secure Checkout</span>
                     </div>
                     <p className="text-xs text-gray-500 mt-1">
-                      Visa, Mastercard, RuPay, Maestro
+                      Pay securely using UPI, cards, netbanking and other Cashfree-supported methods.
                     </p>
-                  </div>
-                </label>
-
-                {/* Netbanking Option */}
-                <label
-                  className={`p-4 rounded-xl border-2 cursor-pointer transition-all flex items-start gap-3 ${
-                    paymentMethod === "netbanking"
-                      ? "border-orange-600 bg-orange-50/40"
-                      : "border-gray-200 hover:border-gray-300 bg-white"
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="payment"
-                    value="netbanking"
-                    checked={paymentMethod === "netbanking"}
-                    onChange={() => setPaymentMethod("netbanking")}
-                    className="mt-1 text-orange-600 focus:ring-orange-500"
-                  />
-                  <div>
-                    <div className="flex items-center gap-2 font-bold text-xs uppercase tracking-wider text-gray-900">
-                      <Building className="w-4 h-4 text-orange-600" />
-                      <span>Netbanking</span>
+                    <div className="mt-3 flex flex-wrap gap-2 text-[10px] font-semibold text-gray-600">
+                      <span className="px-2 py-1 rounded-full bg-white border">UPI</span>
+                      <span className="px-2 py-1 rounded-full bg-white border">Cards</span>
+                      <span className="px-2 py-1 rounded-full bg-white border">Netbanking</span>
+                      <span className="px-2 py-1 rounded-full bg-white border">Wallets</span>
                     </div>
-                    <p className="text-xs text-gray-500 mt-1">
-                      SBI, HDFC, ICICI, Axis, PNB and 50+ banks
-                    </p>
-                  </div>
-                </label>
-
-                {/* Cash on Delivery */}
-                <label
-                  className={`p-4 rounded-xl border-2 cursor-pointer transition-all flex items-start gap-3 ${
-                    paymentMethod === "cod"
-                      ? "border-orange-600 bg-orange-50/40"
-                      : "border-gray-200 hover:border-gray-300 bg-white"
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="payment"
-                    value="cod"
-                    checked={paymentMethod === "cod"}
-                    onChange={() => setPaymentMethod("cod")}
-                    className="mt-1 text-orange-600 focus:ring-orange-500"
-                  />
-                  <div>
-                    <div className="flex items-center gap-2 font-bold text-xs uppercase tracking-wider text-gray-900">
-                      <Banknote className="w-4 h-4 text-orange-600" />
-                      <span>Cash on Delivery (COD)</span>
-                    </div>
-                    <p className="text-xs text-gray-500 mt-1">
-                      Pay cash upon delivery to your doorstep
-                    </p>
                   </div>
                 </label>
               </div>
@@ -600,7 +613,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ navigate }) => {
                     <span>Processing Sacred Order...</span>
                   </span>
                 ) : (
-                  <span>Place Order (₹{finalTotal.toLocaleString("en-IN")})</span>
+                  <span>Pay Securely with Cashfree (₹{finalTotal.toLocaleString("en-IN")})</span>
                 )}
               </button>
 

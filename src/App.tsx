@@ -365,18 +365,40 @@ function Router() {
     return () => window.removeEventListener("popstate", f);
   }, []);
 
-  const [pathname, query] = path.split("?");
+  const [rawPathname, query] = path.split("?");
   const params = new URLSearchParams(query || "");
 
+  // Support both the standalone-store root routes and the /store/* routes
+  // used by the existing Store components. This fixes links such as
+  // "Proceed to Checkout" -> /store/checkout.
+  const pathname =
+    rawPathname === "/store" ? "/" :
+    rawPathname.startsWith("/store/") ? rawPathname.slice("/store".length) :
+    rawPathname;
+
   let page: React.ReactNode;
-  if (pathname === "/" || pathname === "") page = <StorePage navigate={navigate} initialCategory={params.get("category")} />;
-  else if (pathname === "/login") page = <LoginPage navigate={navigate} />;
-  else if (pathname === "/cart") page = <CartPage navigate={navigate} />;
-  else if (pathname === "/checkout") page = <CheckoutPage navigate={navigate} />;
-  else if (pathname === "/account" || pathname === "/profile") page = <CustomerProfilePage navigate={navigate} />;
-  else if (pathname === "/admin" || pathname.startsWith("/admin/")) page = <AdminDashboardPage navigate={navigate} />;
-  else if (pathname.startsWith("/product/")) page = <ProductDetailPage slug={pathname.replace("/product/", "").replace(/\/$/, "")} navigate={navigate} />;
-  else page = <StorePage navigate={navigate} initialCategory={params.get("category")} />;
+  if (pathname === "/" || pathname === "") {
+    page = <StorePage navigate={navigate} initialCategory={params.get("category")} />;
+  } else if (pathname === "/login" || pathname === "/signup") {
+    page = <LoginPage navigate={navigate} />;
+  } else if (pathname === "/cart") {
+    page = <CartPage navigate={navigate} />;
+  } else if (pathname === "/checkout") {
+    page = <CheckoutPage navigate={navigate} />;
+  } else if (pathname === "/account" || pathname === "/profile") {
+    page = <CustomerProfilePage navigate={navigate} />;
+  } else if (pathname === "/admin" || pathname.startsWith("/admin/")) {
+    page = <AdminDashboardPage navigate={navigate} />;
+  } else if (pathname.startsWith("/product/")) {
+    page = (
+      <ProductDetailPage
+        slug={pathname.replace("/product/", "").replace(/\/$/, "")}
+        navigate={navigate}
+      />
+    );
+  } else {
+    page = <StorePage navigate={navigate} initialCategory={params.get("category")} />;
+  };
 
   return (
     <>

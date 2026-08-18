@@ -65,3 +65,44 @@ Do not put service-role keys, Cashfree secret keys, or webhook secrets in React/
 
 ### Cloudflare dependency note
 The project pins `@cloudflare/workers-types` to a published stable version so Bun can resolve dependencies during Cloudflare builds.
+
+## Cashfree Store checkout
+
+This version uses Cashfree Hosted Web Checkout. The browser never receives the Cashfree secret.
+The Cloudflare Worker creates the Cashfree order and the Store webhook verifies Cashfree signatures.
+
+### Required Cloudflare secrets/variables
+
+- `CASHFREE_CLIENT_ID` — Secret
+- `CASHFREE_CLIENT_SECRET` — Secret
+- `CASHFREE_ENVIRONMENT` — Variable: `PRODUCTION`
+- `CASHFREE_WEBHOOK_SECRET` — Secret (optional; if omitted, the client secret is used for webhook verification)
+- `SUPABASE_URL` — Variable
+- `SUPABASE_ANON_KEY` — Variable
+
+### Cashfree webhook URL
+
+Configure a separate Store webhook in Cashfree:
+
+`https://store.sanatandharmasevatrust.in/api/store/cashfree/webhook`
+
+Subscribe to successful/failed payment events as required by your Cashfree account.
+
+### Cashfree domain whitelisting
+
+Cashfree requires the web domain used to open Hosted Checkout to be whitelisted. Whitelist:
+
+`store.sanatandharmasevatrust.in`
+
+### Product seed
+
+Run `supabase_store_product_seed.sql` once in the Store Supabase project before live payments. The Worker validates cart slugs and prices against its server-side catalogue, so it never trusts the browser's total.
+
+### Important
+
+The Cashfree payment integration is separate from the Trust donation webhook. It uses:
+`/api/store/cashfree/create-order`
+`/api/store/cashfree/verify`
+`/api/store/cashfree/webhook`
+
+Do not point the Store webhook at the Trust donation webhook.
