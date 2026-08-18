@@ -1,0 +1,74 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Marcellus&display=swap');
+
+:root {
+  --saffron: #f97316;
+  --maroon: #7c2d12;
+  --gold: #d4af37;
+  --cream: #fdfbf7;
+  --text: #2d2d2d;
+}
+
+@layer base {
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    color: var(--text);
+    background-color: var(--cream);
+  }
+
+  h1, h2, h3, h4, h5, h6, .font-serif, .marcellus {
+    font-family: 'Marcellus', 'Cinzel', Georgia, serif;
+  }
+}
+
+.mandala-bg {
+  background-color: #fdfbf7;
+  background-image: radial-gradient(circle at center, rgba(249, 115, 22, 0.05) 0%, transparent 70%);
+  background-size: 600px 600px;
+  background-position: center;
+}
+
+.product-card {
+  transition: all 0.3s ease;
+  border: 1px solid rgba(229, 231, 235, 0.9);
+}
+
+.product-card:hover {
+  border-color: var(--saffron);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.08);
+  transform: translateY(-2px);
+}
+
+.pill-btn {
+  border: 1px solid #e5e7eb;
+  transition: all 0.2s ease;
+}
+
+.pill-btn.active {
+  background-color: var(--saffron);
+  color: #ffffff;
+  border-color: var(--saffron);
+  box-shadow: 0 2px 4px rgba(249, 115, 22, 0.2);
+}
+
+.buy-btn {
+  background: linear-gradient(to right, var(--maroon), #991b1b);
+  transition: opacity 0.2s, transform 0.15s;
+}
+
+.buy-btn:hover {
+  opacity: 0.93;
+}
+
+.buy-btn:active {
+  transform: scale(0.99);
+}
+
+/* Custom subtle scrollbar */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
