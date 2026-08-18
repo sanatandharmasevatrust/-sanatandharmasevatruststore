@@ -144,29 +144,38 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setSupabaseStatus("live_connected");
 
     // Check existing session
-    client.auth.getSession().then(({ data: { session }, error }) => {
-      if (!error && session?.user) {
-        const metadata = session.user.user_metadata || {};
-        const { data: profile } = await client
-          .from("profiles")
-          .select("role, full_name, phone")
-          .eq("id", session.user.id)
-          .maybeSingle();
-
-        const role: UserRole = profile?.role === "admin" ? "admin" : "customer";
-
-        setCurrentUser({
-          id: session.user.id,
-          email: session.user.email || "",
-          name: profile?.full_name || metadata.name || metadata.full_name || session.user.email?.split("@")[0] || "Devotee",
-          role,
-          phone: profile?.phone || metadata.phone || "",
-          pan: metadata.pan || "",
-          gotra: metadata.gotra || "",
-          address: metadata.address || undefined,
-          joinedDate: new Date(session.user.created_at).toLocaleDateString("en-IN", { month: "short", year: "numeric" }),
-        });
+    client.auth.getSession().then(async ({ data: { session }, error }) => {
+      if (error || !session?.user) {
+        setCurrentUser(null);
+        return;
       }
+
+      const metadata = session.user.user_metadata || {};
+      const { data: profile, error: profileError } = await client
+        .from("profiles")
+        .select("role, full_name, phone")
+        .eq("id", session.user.id)
+        .maybeSingle();
+
+      // A Supabase session alone is NOT enough to enter the Store UI.
+      // Every authenticated user must have a valid profile role.
+      if (profileError || !profile || !["admin", "customer"].includes(profile.role)) {
+        await client.auth.signOut();
+        setCurrentUser(null);
+        return;
+      }
+
+      setCurrentUser({
+        id: session.user.id,
+        email: session.user.email || "",
+        name: profile.full_name || metadata.name || metadata.full_name || session.user.email?.split("@")[0] || "Devotee",
+        role: profile.role as UserRole,
+        phone: profile.phone || metadata.phone || "",
+        pan: metadata.pan || "",
+        gotra: metadata.gotra || "",
+        address: metadata.address || undefined,
+        joinedDate: new Date(session.user.created_at).toLocaleDateString("en-IN", { month: "short", year: "numeric" }),
+      });
     });
 
     // Listen to Auth State Changes
@@ -174,26 +183,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setLastSecurityCheck(new Date().toLocaleTimeString());
       if (session?.user) {
         const metadata = session.user.user_metadata || {};
-        const { data: profile } = await client
+        const { data: profile, error: profileError } = await client
           .from("profiles")
           .select("role, full_name, phone")
           .eq("id", session.user.id)
           .maybeSingle();
 
-        const role: UserRole = profile?.role === "admin" ? "admin" : "customer";
+        if (profileError || !profile || !["admin", "customer"].includes(profile.role)) {
+          await client.auth.signOut();
+          setCurrentUser(null);
+          return;
+        }
 
         setCurrentUser({
           id: session.user.id,
           email: session.user.email || "",
-          name: profile?.full_name || metadata.name || metadata.full_name || session.user.email?.split("@")[0] || "Devotee",
-          role,
-          phone: profile?.phone || metadata.phone || "",
+          name: profile.full_name || metadata.name || metadata.full_name || session.user.email?.split("@")[0] || "Devotee",
+          role: profile.role as UserRole,
+          phone: profile.phone || metadata.phone || "",
           pan: metadata.pan || "",
           gotra: metadata.gotra || "",
           address: metadata.address || undefined,
           joinedDate: new Date(session.user.created_at).toLocaleDateString("en-IN", { month: "short", year: "numeric" }),
         });
-      } else if (event === "SIGNED_OUT") {
+      } else {
         setCurrentUser(null);
       }
     });
@@ -340,22 +353,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .eq("id", data.user.id)
         .maybeSingle();
 
-      if (profileError) {
+      if (profileError || !profile) {
         await client.auth.signOut();
         setCurrentUser(null);
         return {
           success: false,
-          message: "Unable to verify your account. Please try again.",
+          message: "This account has not been provisioned for the Store.",
         };
       }
 
       // Keep the admin and customer entry points separate.
-      if (profile?.role === "admin") {
+      if (profile.role === "admin") {
         await client.auth.signOut();
         setCurrentUser(null);
         return {
           success: false,
           message: "This is an administrator account. Please use Admin Sign In.",
+        };
+      }
+
+      if (profile.role !== "customer") {
+        await client.auth.signOut();
+        setCurrentUser(null);
+        return {
+          success: false,
+          message: "This account is not authorized for Customer access.",
         };
       }
 

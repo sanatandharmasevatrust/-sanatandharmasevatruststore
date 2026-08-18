@@ -121,3 +121,7 @@ The production build no longer accepts arbitrary email/password combinations. Cu
 
 ## Important deployment requirement
 Cloudflare Worker runtime variables named `SUPABASE_URL` and `SUPABASE_ANON_KEY` are not automatically available to Vite's `import.meta.env`. The Store must be built with `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` (publishable key) or use a runtime config endpoint. If Supabase is not configured in the frontend build, the app now refuses authentication and clears legacy demo auth storage.
+
+## Critical auth deployment check
+For Vite, set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in the Cloudflare Pages/Workers build environment before building. `SUPABASE_URL` and `SUPABASE_ANON_KEY` alone are Worker runtime variables and are not read by `import.meta.env`.
+After deployment, test in a private window. If arbitrary credentials still appear to log in, the browser is not running this build or the frontend is not connected to Supabase Auth.
