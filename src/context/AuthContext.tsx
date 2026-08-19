@@ -8,7 +8,7 @@ interface AuthContextType {
   isAdmin: boolean;
   isCustomer: boolean;
   isSupabaseLive: boolean;
-  supabaseStatus: "live_connected" | "connecting";
+  supabaseStatus: "live_connected" | "not_configured" | "connecting";
   loginAsAdmin: (email?: string, password?: string) => Promise<{ success: boolean; message: string }>;
   loginAsCustomer: (email: string, name?: string, phone?: string, password?: string) => Promise<{ success: boolean; message: string }>;
   registerCustomer: (details: {
@@ -92,8 +92,8 @@ const INITIAL_DEMO_ORDERS: OrderDetails[] = [
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const isSupabaseLive = isSupabaseConfigured();
-  const [supabaseStatus, setSupabaseStatus] = useState<"live_connected" | "connecting">(
-    isSupabaseLive ? "live_connected" : "connecting"
+  const [supabaseStatus, setSupabaseStatus] = useState<"live_connected" | "not_configured" | "connecting">(
+    isSupabaseLive ? "live_connected" : "not_configured"
   );
   const [lastSecurityCheck, setLastSecurityCheck] = useState<string>(() => new Date().toLocaleTimeString());
 
@@ -112,7 +112,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     const client = getSupabaseClient();
     if (!client) {
-      setSupabaseStatus("connecting");
+      setSupabaseStatus("not_configured");
       return;
     }
 
@@ -219,6 +219,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
     }
 
+    // A failed login must never leave a previous valid session active.
+    // Sign out the existing browser session before attempting a new identity.
+    try {
+      await client.auth.signOut();
+    } catch {
+      // Continue; signInWithPassword below is still the authority.
+    }
+    setCurrentUser(null);
+
     if (!email?.trim() || !password) {
       return {
         success: false,
@@ -233,6 +242,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
 
       if (error || !data.user) {
+        try { await client.auth.signOut(); } catch {}
+        setCurrentUser(null);
         return {
           success: false,
           message: error?.message || "Invalid admin credentials.",
@@ -300,6 +311,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
     }
 
+    // Clear any previous browser session before accepting a new login attempt.
+    try {
+      await client.auth.signOut();
+    } catch {
+      // Continue to signInWithPassword.
+    }
+    setCurrentUser(null);
+
     if (!email.trim() || !password) {
       return {
         success: false,
@@ -314,6 +333,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
 
       if (error || !data.user) {
+        try { await client.auth.signOut(); } catch {}
+        setCurrentUser(null);
         return {
           success: false,
           message: error?.message || "Invalid email or password.",

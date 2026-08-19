@@ -127,5 +127,5 @@ For Vite, set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in the Cloudflare
 After deployment, test in a private window. If arbitrary credentials still appear to log in, the browser is not running this build or the frontend is not connected to Supabase Auth.
 
 
-## Authentication configuration
-The frontend reads `VITE_SUPABASE_PUBLISHABLE_KEY` (preferred) and also accepts the legacy `VITE_SUPABASE_ANON_KEY`. There is no demo login fallback. If neither key is present at Vite build time, authentication is disabled and login cannot succeed.
+## Authentication fix
+Login attempts explicitly clear any previous Supabase browser session before authenticating. Failed credentials now also clear the current user, so a failed login cannot leave a previously authenticated Admin or Customer session active. The frontend accepts `VITE_SUPABASE_PUBLISHABLE_KEY` (preferred) or the legacy `VITE_SUPABASE_ANON_KEY`. No demo account is used for authentication.

@@ -3,15 +3,14 @@ import { createClient, SupabaseClient } from "@supabase/supabase-js";
 // Read environment variables for Supabase
 const env = (import.meta as any).env || {};
 const supabaseUrl: string = env.VITE_SUPABASE_URL || "";
-const supabasePublishableKey: string =
-  env.VITE_SUPABASE_PUBLISHABLE_KEY || env.VITE_SUPABASE_ANON_KEY || "";
+const supabaseAnonKey: string = env.VITE_SUPABASE_PUBLISHABLE_KEY || env.VITE_SUPABASE_ANON_KEY || "";
 
 export const isSupabaseConfigured = (): boolean => {
   return Boolean(
     supabaseUrl &&
-    supabasePublishableKey &&
+    supabaseAnonKey &&
     supabaseUrl.startsWith("http") &&
-    supabasePublishableKey.length > 10
+    supabaseAnonKey.length > 10
   );
 };
 
@@ -20,7 +19,7 @@ let clientInstance: SupabaseClient | null = null;
 export const getSupabaseClient = (): SupabaseClient | null => {
   if (isSupabaseConfigured()) {
     if (!clientInstance) {
-      clientInstance = createClient(supabaseUrl, supabasePublishableKey, {
+      clientInstance = createClient(supabaseUrl, supabaseAnonKey, {
         auth: {
           persistSession: true,
           autoRefreshToken: true,
@@ -34,7 +33,7 @@ export const getSupabaseClient = (): SupabaseClient | null => {
 };
 
 export const supabase = isSupabaseConfigured()
-  ? createClient(supabaseUrl, supabasePublishableKey, {
+  ? createClient(supabaseUrl, supabaseAnonKey, {
       auth: {
         persistSession: true,
         autoRefreshToken: true,
