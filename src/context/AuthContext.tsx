@@ -8,7 +8,7 @@ interface AuthContextType {
   isAdmin: boolean;
   isCustomer: boolean;
   isSupabaseLive: boolean;
-  supabaseStatus: "live_connected" | "demo_fallback" | "connecting";
+  supabaseStatus: "live_connected" | "connecting";
   loginAsAdmin: (email?: string, password?: string) => Promise<{ success: boolean; message: string }>;
   loginAsCustomer: (email: string, name?: string, phone?: string, password?: string) => Promise<{ success: boolean; message: string }>;
   registerCustomer: (details: {
@@ -33,31 +33,6 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const AUTH_STORAGE_KEY = "sanatan_seva_auth_user_v1";
 const ORDERS_STORAGE_KEY = "sanatan_seva_orders_v1";
 
-const DEFAULT_ADMIN: UserAccount = {
-  id: "admin-sdst-01",
-  role: "admin",
-  name: "Trust Acharya & Store Admin",
-  email: "admin@sanatantrust.org",
-  phone: "+91 98765 43210",
-  joinedDate: "January 2024",
-};
-
-const DEFAULT_CUSTOMER: UserAccount = {
-  id: "cust-devotee-108",
-  role: "customer",
-  name: "Rajesh Sharma",
-  email: "rajesh.sharma@example.com",
-  phone: "+91 98123 45678",
-  pan: "ABCDE1234F",
-  gotra: "Kashyapa",
-  address: {
-    street: "Flat 402, Om Shanti Enclave, Near Sankat Mochan Temple",
-    city: "Varanasi",
-    state: "Uttar Pradesh",
-    pincode: "221005",
-  },
-  joinedDate: "March 2024",
-};
 
 const INITIAL_DEMO_ORDERS: OrderDetails[] = [
   {
@@ -117,8 +92,8 @@ const INITIAL_DEMO_ORDERS: OrderDetails[] = [
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const isSupabaseLive = isSupabaseConfigured();
-  const [supabaseStatus, setSupabaseStatus] = useState<"live_connected" | "demo_fallback" | "connecting">(
-    isSupabaseLive ? "live_connected" : "demo_fallback"
+  const [supabaseStatus, setSupabaseStatus] = useState<"live_connected" | "connecting">(
+    isSupabaseLive ? "live_connected" : "connecting"
   );
   const [lastSecurityCheck, setLastSecurityCheck] = useState<string>(() => new Date().toLocaleTimeString());
 
@@ -137,7 +112,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     const client = getSupabaseClient();
     if (!client) {
-      setSupabaseStatus("demo_fallback");
+      setSupabaseStatus("connecting");
       return;
     }
 

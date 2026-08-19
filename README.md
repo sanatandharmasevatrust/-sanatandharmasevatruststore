@@ -125,3 +125,7 @@ Cloudflare Worker runtime variables named `SUPABASE_URL` and `SUPABASE_ANON_KEY`
 ## Critical auth deployment check
 For Vite, set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in the Cloudflare Pages/Workers build environment before building. `SUPABASE_URL` and `SUPABASE_ANON_KEY` alone are Worker runtime variables and are not read by `import.meta.env`.
 After deployment, test in a private window. If arbitrary credentials still appear to log in, the browser is not running this build or the frontend is not connected to Supabase Auth.
+
+
+## Authentication configuration
+The frontend reads `VITE_SUPABASE_PUBLISHABLE_KEY` (preferred) and also accepts the legacy `VITE_SUPABASE_ANON_KEY`. There is no demo login fallback. If neither key is present at Vite build time, authentication is disabled and login cannot succeed.
